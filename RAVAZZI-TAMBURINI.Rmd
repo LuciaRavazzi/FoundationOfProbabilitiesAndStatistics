@@ -1,0 +1,1329 @@
+---
+title: "Foundations of Probability and Statistics: Project"
+subtitle: "A.A. 2019-2020"
+author: "Lucia Ravazzi (matr. 852646) & Silvia Tamburini (matr. 813117)"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+geometry: margin=3.5cm
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 2
+    number_sections: yes
+    keep_tex: yes
+    fig_caption: yes
+    includes:
+      in_header: mystyles.sty
+bibliography: bibliography.bib
+csl: citation-style.csl
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+options(tinytex.clean = FALSE)
+options(knitr.table.format = "latex")
+```
+
+# Introduction
+
+The aim of this project is to analyze the status of ICT prevalence and usage in Italian companies; in particular, being Data Science students at University of Milano-Bicocca, we are particularly interested in studying the situation in the labour market for Computer Science and Data Science students. Our work will be focused in four different parts:
+
+* General conditions of the labour market;
+* Skills in the ICT fields: which are present and which are needed;
+* Specific topics for Data Science students: big data and cloud computing usage;
+* Future investments that could improve the situation.
+
+We used a dataset publicly available at ISTAT website, and we will also provide a general description of the dataset and of the sample being analyzed.
+
+```{r document_preparation, include = FALSE}
+
+# Installs required packages
+requiredpackages <- c('pander',        # awesome tables.
+                      'dplyr',         # performing query on tables.
+                      'tidyr',         # organizing table data
+                      'ggplot2',       # good looking and smart plots.
+                      'gridExtra',     # multiple ggplot. 
+                      'hrbrthemes',    # lollipop chart.
+                      'mapIT',         # map chart.
+                      'devtools',      
+                      'knitr',         # for LaTeX table
+                      'kableExtra')    # customization LaTeX table
+
+for (pkg in requiredpackages) {
+  if (pkg %in% rownames(installed.packages()) == FALSE)
+  {install.packages(pkg)}
+  if (pkg %in% rownames(.packages()) == FALSE)
+  {library(pkg, character.only = TRUE)}
+}
+
+rm(pkg, requiredpackages)
+
+# theme of ggplot.
+theme <- theme(axis.line.x = element_line(size = 0.5, colour = "black"),
+                        axis.line.y = element_line(size = 0.5, colour = "black"),
+                        axis.line = element_line(size=1, colour = "black"),
+                        plot.title= element_text(size = 18),
+                        text=element_text(size = 13),
+                        axis.text.x=element_text(colour="black", size = 10), # numeri sugli assi.
+                        axis.text.y=element_text(colour="black", size = 10))
+```
+
+# Dataset description
+
+We used an ISTAT dataset referring to a $2018$ study made in conjunction with Eurostat and the statistical institutes of EU countries. This is a yearly analysis started in 2001 but it's mandatory since 2004. 
+The dataset is named *Rilevazione sulle tecnologie dell'informazione e della comunicazione nelle imprese (ICT): Microdati a uso pubblico* and it is publicly available at [@dataset], although the responsibility of the analysis is upon us and should not be attributable to ISTAT. 
+
+The provided dataset refers to Italian companies with 10 employees or more, which were active in $2018$. The statistical population has nearly 200.000 individuals; ISTAT extracted a statistical sample with 33.000 units, although subsequent data cleaning processes reduced the number of elements to 22.000 observations (66.8% of the sample, 11% of the total population).
+
+The method by which the statistical sample has been extracted is described in [@notametodologica]; basically, for companies that have below 250 employees, ISTAT defined many sub-populations (one for every work field, number of employees and Italian region) and then extracted a random sample from every one of them, with the number of total extractions being determined by a statistical procedure; while all of the companies with 250 employees and more were present in the original extraction (apart from data cleaning processes). For this reason, we decided not to extract another sample and to work with all the observations that we have.
+
+Data have been collected by a survey, which consists of almost 40 questions, with multiple answers; in the dataset, we have a variable for every answer, so that is why the dataset is characterized by a huge amount of fields, which are described by our source in an attached document. Our analysis will regard only a fraction of all the available attributes, and we will describe them later in the process. Here, we'll rather focus on the main topics of the dataset, which are the following: 
+
+* Skills of employees in the ICT field;
+* Online activities (website, social media, public administration);
+* Internet connection;
+* E-commerce;
+* Electronic invoicing;
+* Specific applications, like 3D-printer, cloud computing, robotics and Big Data;
+* Future ICT investments
+
+It's important to underline that data are anonymized in two ways: by using a code which identifies each company, thus eliminating sensible information; and by discretizing specific attributes (such as earnings and number of employees) that could lead to the identification of the company.
+
+```{r import_dataset, include=FALSE}
+# import dataset.
+data = read.csv(file = "ICT_Microdati_2018.txt", sep="\t")
+
+# find missing values (unique values)
+# The missing character is the point, with a variable number of spaces before and after it.
+check_miss = function(x){
+  x[which(stringr::str_detect(x, "^\\s*\\.\\s*") == TRUE)] %>% unique()
+}
+
+miss = apply(data, 2, FUN=check_miss) %>% unlist() %>% unique()
+
+# import dataset with the correct missing values. 
+data = read.csv(file = "ICT_Microdati_2018.txt", sep="\t", na.strings=miss)
+
+#Delete variables from this part
+rm(miss, check_miss)
+```
+
+Most attributes are binary (here, they appear as integers); plus, there are 4 double attributes (mostly percentages) and 5 character attributes, which are codes to identify information about the company, i.e. its location, its number of employees, etc. Variable types are summed up in table \ref{tab:tpof}.
+
+```{r check_types, include = FALSE}
+#TABLE PREPARATION: variable types
+
+tpof = c()
+
+for (i in 1:ncol(data)){
+  tpof = c(tpof, typeof(data[,i]))
+}
+
+tpof <- as.data.frame(table(tpof))
+```
+
+```{r tpof, echo=FALSE, results ='asis'}
+#TABLE GENERATION: variable types
+kable(tpof, "latex", booktabs = T, col.names = c("Types", "Frequency"), caption = "Variable types.") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+Finally, the dataset has a lot of missing data values, but most of them are reasonable: for example, a lot of questions in the survey have to be answered only if a "yes" answer to another question has already been given. This can be understood further with the help of the following code: the below *miss* vector contains the number of missing values for every column. We will print here only the first 50 elements, and it can be seen for example that the 26th, 27th, 28th, 29th, 30th and the 31st attribute have the same number of missing values. This is a consequence of the explanation given above. 
+
+```{r check_miss}
+miss = c()
+
+#Number of missing data for each column
+for (i in 1:dim(data)[2]){
+  miss = c(miss, data[,i] %>% is.na() %>% sum())
+}
+
+miss[1:50]
+```
+
+```{r dataset_preparation, include = FALSE}
+# DATASET PREPARATION
+
+#Locations: from unintuitive codes to explicative names
+locat <- data$rip
+locat <- recode(locat, ITC = "North-West", ITH = "North-East", ITI = "Center", ITF = "South", ITG = "Islands")
+data <- mutate(data, Locations = locat)
+rm(locat)
+
+
+#Ateco: from codes to explanation
+ateco_exp <- data$Ateco_1
+ateco_exp <- recode(ateco_exp, 
+                    "C" = "Manifacturing", 
+                    "D" = "Electrical energy, gas, steam and air conditioning", 
+                    "E" = "Water, sewerage and trash",
+                    "F" = "Building",
+                    "G" = "Retail and mechanic",
+                    "H" = "Transportation and storage",
+                    "I" = "Food and accomodation services",
+                    "J" = "Information and communication services",
+                    "L" = "Development company",
+                    "M" = "Professional, scientific and technical activities",
+                    " " = "Missing",
+                    "N" = "Rental agencies, travel agencies and business support",
+                    "S" = "Computer management")
+data <- mutate(data, Ateco_long = ateco_exp)
+rm(ateco_exp)
+
+#Class of employees: from numbers to words
+employees <- data$clad3
+employees <- factor(employees, levels=c("cl1", "cl2", "cl3"))
+employees <- recode(employees, "cl1"='small', "cl2"='medium', "cl3"='big')
+data <- mutate(data, Class_company = employees)
+rm(employees)
+
+#Income: from numbers to interval
+incomes <- data$ricavi_cl
+incomes <- incomes %>% as.character(.)
+incomes <- factor(incomes, 
+                  levels=unique(as.character(sort(as.integer(incomes), na.last = FALSE))))
+incomes <- recode(incomes,
+                  "0" = "[0, 20.000)",
+                  "20000" = "[20.000, 50.000)", 
+                  "50000" = "[50.000, 100.000)", 
+                  "100000" = "[100.000, 200.000)", 
+                  "200000" = "[200.000, 500.000)", 
+                  "500000" = "[500.000, 1.000.000)", 
+                  "1000000" = "[1.000.000, 2.000.000)", 
+                  "2000000" = "[2.000.000, 4.000.000)", 
+                  "4000000" = "[4.000.000, 5.000.000)", 
+                  "5000000" = "[5.000.000, 10.000.000)", 
+                  "10000000" = "[10.000.000, 20.000.000)", 
+                  "20000000" = "[20.000.000, 50.000.000)", 
+                  "50000000" = "[50.000.000, 200.000.000)",
+                  "200000000" = "[200.000.000, + inf)")
+data <- mutate(data, revenue_interval = incomes)
+rm(incomes)
+```
+
+```{r removing variables from section: "dataset description", include=FALSE}
+#Removing variables from this part
+rm(i, tpof, miss)
+```
+
+# General information about the sample
+
+In the following section, we are reporting information about the companies in the sample, with specific regard to how many employees they have, how much they earn, their area of expertise and where they are. 
+
+## Number of employees
+
+First of all, we can distinguish between small, medium and big enterprises on the basis of the number of employees. The absolute number isn't provided: it has been discretized into three intervals: $[10,49]$, $[50,249]$, $[250, +\infty]$. In table \ref{tab:tt}, the first interval refers to *small enterprises*, the second refers to *medium enterprises* and the third refers to *big enterprises*. We note that small enterprises are the most frequent ones.
+
+```{r tt_preparation, include = FALSE}
+#TABLE PREPARATION: company dimensions frequencies
+tt = data$Class_company %>% table()
+tt = tt/sum(tt)*100 %>% round(., digit = 1)
+names(tt) = c("Small", "Medium", "Big")
+tt <- as.data.frame(tt)
+tt$Freq <- round(tt$Freq, digit=1)
+```
+
+```{r tt, echo = FALSE, results ='asis'}
+#TABLE GENERATION: company dimensions frequencies
+kable(tt, "latex", booktabs = T, col.names = c("Company dimension", "Frequency (%)"), caption = "Company dimension percentage frequencies.") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+## Income
+
+Secondly, we studied the distribution of their income. Being a sensible information that could help recognizing the company, the income is also discretized into invervals that can be seen in the figure \ref{fig:income_distribution}. As it can be seen from that graph, $[2000000, 4000000)$ is the most likely, i.e. the _mode_; followed by $[1.000.000, 2.000.000)$ and by $[5.000.000, 10.000.000)$. It has to be noted though that the intervals have not the same width.
+
+```{r income_distribution, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE, fig.height = 5, fig.width = 12, fig.align = "H", fig.cap="Distribution of income of enterprises."}
+
+df = data.frame("Revenue" = data$revenue_interval[is.na(data$revenue_interval) == FALSE])
+
+#Plotting information
+ggplot(df, aes(x = Revenue)) + geom_bar(aes(y = ((..count..)/sum(..count..)))) + xlab("Revenue") + ylab("% of enterprises") + scale_y_continuous(labels=scales::percent)  + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + theme(axis.text.x=element_text(colour="black", size = 16), # numeri sugli assi.
+                    axis.text.y=element_text(colour="black", size = 16),
+                    text=element_text(size = 22))
+```
+## Connection between number of employees and revenue
+
+It can also be asked if there is a connection between the number of employees studied previously, and the revenue of the company. We'll use the Chi-Square test to answer to this question, especially we are testing the $H_0: \chi^2=0$.
+
+```{r test_revenue_dimension, echo = FALSE}
+cont = table(data$revenue_interval, data$Class_company)
+chi=chisq.test(cont)
+chi
+```
+Assuming that the value of $\alpha = 0.05$, we observe that the p-value is lower than $\alpha$ and as a consequence, the $H_0$ hypothesis must be rejected: as might be expected, the big enterprises have the highest revenue, although there are also some small ones which have a high income. 
+
+Note that the function that we used to compute the Chi-Squared test throws a warning (*Chi-squared approximation may be incorrect*) whenever one of the expected counts is lower than five: as it can be seen from the histogram in figure \ref{fig:income_distribution}, there are only a few enterprises with an income lower than $200.000$ euros.
+
+## Location
+
+Moreover, we studied the territorial distribution of the companies that we have in the dataset. As it can be seen from table \ref{tab:locations}, more than half of the enterprises that we are studying are in the Northern regions of Italy, while only 4% of them are located in the islands. 
+
+```{r locations_preparation, include = FALSE}
+#TABLE PREPARATION: company location frequencies
+locations = table(data$rip)
+locations = round(locations/sum(locations)*100, digit = 1)
+locations = locations[c("ITC", "ITH", "ITI", "ITF", "ITG")]
+names(locations) = c("North-West", "North-East", "Center", "South", "Islands")
+
+locations <- as.data.frame(locations)
+```
+
+```{r locations, echo = FALSE, results ='asis'}
+#TABLE GENERATION: company location frequencies
+kable(locations, "latex", booktabs = T, col.names = c("Location", "Frequency (%)"), caption = "Company location percentage frequencies.") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+## Areas of expertise
+
+Finally, we are showing here the expertise areas percentage frequency distribution of the companies of interest. As it can be seen from figure \ref{fig:workareas}, retail and mechanic companies are the most prevalent, followed by manifacturing and building ones: in total, they are more than half of the companies that we have. Plus, for some companies we don't have their expertise area, and they're represented as *Missing*. 
+
+```{r workareas, echo=FALSE, warning=FALSE, results=FALSE, warning=FALSE, comment=FALSE, fig.height = 4, fig.width = 8, out.height = "40%", fig.align = "H", fig.cap="Expertise area percentage frequencies distribution."}
+
+works = table(data$Ateco_long)
+works = works/sum(works)
+works = as.data.frame(works)
+works = works %>% arrange(Freq)
+
+works$Var1 <- factor(works$Var1, 
+                     levels = c("Missing", "Computer management", 
+                                "Development company",
+                                "Electrical energy, gas, steam and air conditioning",
+                                "Professional, scientific and technical activities",
+                                "Food and accomodation services",
+                                "Transportation and storage",
+                                "Water, sewerage and trash",
+                                "Rental agencies, travel agencies and business support",
+                                "Information and communication services",
+                                "Building",
+                                "Manifacturing",
+                                "Retail and mechanic"))
+
+ggplot(data = works, aes(x = Var1, y=Freq)) + geom_col() + coord_flip() + scale_y_continuous(labels = scales::percent) + labs(y = "% of enterprises", x ="") + theme(
+  axis.text.y=element_text(colour="black", size = 11),
+  text=element_text(size = 15))
+```
+
+```{r removing variables from section "general information: sample", include=FALSE}
+
+#Remove variables from this part
+rm(tt, df, cont, chi, locations, works)
+```
+
+# General situation
+
+In this part, we'll describe the general situation of ICT usage in Italian business. We'll focus on specific details later on in the analysis. We want to focus here on four specific points:
+
+* Number of employees who use a device to work;
+* Available internet connection;
+* Number of employees who use a connected device to work;
+* General information about other areas of interest in the dataset (the ones we described in section 1)
+
+## Percentage of employees who use an ICT device to work
+
+We assume here that an important factor to take into account if we want to focus on ICT usage in enterprises is the percentage of employees who need at least one ICT device to work. This can track the importance of ICT in the workfield. As it can be seen from graph \ref{fig:employeesICTdevice}, in our sample, almost 25% of enterprises are such that all of their employees need at least one ICT device to work. It is also remarkable to note that the the percentages of enterprises within other bins occur with very rare frequency (less than 5%).
+
+```{r employeesICTdevice, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE, fig.height = 3, fig.width = 9, fig.align = "H", fig.cap="Distribution of the percentages of employees who need at least one ICT device to work."}
+
+#Histogram data
+histogram_data <- data.frame(data$A3_)
+names(histogram_data) <- c("Fraction")
+histogram_data <- histogram_data %>%
+  mutate(Fraction = Fraction/100) %>%
+  filter(is.na(Fraction) == FALSE)
+
+#Histogram
+ggplot(data = histogram_data, aes(x = Fraction, y = ((..count..)/sum(..count..)))) +
+  geom_histogram(color = "#0a0a0a", fill="#D21F3C", alpha= 0.6, bins = 50) + 
+  labs(x = "% of employees who use at least one ICT device to work", 
+       y = "% of enterprises") +
+  scale_x_continuous(labels = scales::percent) + 
+  scale_y_continuous(labels = scales::percent) + theme(axis.text.x=element_text(colour="black", size = 15), 
+                    axis.text.y=element_text(colour="black", size = 15),
+                    text=element_text(size = 15))
+```
+
+However, visualization \ref{fig:employeesICTdevice} doesn't take into account the sector in which the enterprises work. Therefore, _conditional boxplots_ in figure \ref{fig:boxplotatecoICTdevice} show the distribution of the fraction of employees who use at least one ICT device to work against their expertise area; as it can be seen, there are three categories in which the median is almost $100\%$: professional, scientific and technical activities, ICT services and computer management. This is coherent with the required activities of the sector. Moreover, also the electrical energy, gas, steam and air conditioning category has a value major of $90\%$, while the rental activities, travel agencies and business support activities have the worst median.  Finally, it's noteworthy to note that for the top fourth boxplots there are many outliers. Moreover, almost all of boxplot show that the distributions are asymmetric.
+
+```{r boxplotatecoICTdevice, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE, comment=FALSE, fig.height = 5, fig.width = 8, fig.align = "H", fig.cap="Boxplots show the distribution of percentages of employees who need at least one device to work splitted by their area of interest."}
+
+#Dati da utilizzare
+boxplot_data <- data.frame(data$Ateco_long, data$A3) %>% `names<-`(c("Ateco_long", "A3"))
+boxplot_data <- boxplot_data %>%
+  mutate(A3_frac = A3/100) %>%
+  filter(Ateco_long != "Missing")
+
+#Ordering by median
+boxplot_data$Ateco_long = with(boxplot_data, reorder(Ateco_long, A3_frac, median))
+
+ggplot(data = boxplot_data, aes(x = Ateco_long, y = A3_frac, fill = Ateco_long)) + 
+  geom_boxplot(fill = "#D21F3C", alpha = .6, notch=TRUE, outlier.alpha = 0.5) + 
+  theme + 
+  ylab("% of employees who \n have at least one device.") + 
+  xlab("") + scale_y_continuous(labels=scales::percent) + coord_flip() +
+  theme(
+  axis.text.x=element_text(colour="black", size = 11),
+  axis.text.y=element_text(colour="black", size = 11),
+  text=element_text(size = 14))
+```
+
+## Internet connection
+
+Secondly, we assume here that the presence and quality of internet connection is also an important factor to track ICT usage in this country.
+
+### Availability
+
+In this first part, we are showing here the answer to the following question: "Do you have an internet connection in your business?". As it can be seen from table \ref{tab:connections}, it is very rare now not to have an internet connection, although some enterprises in our sample are in this situation.
+
+```{r connections preparation, include = FALSE}
+#TABLE PREPARATION: internet connection frequencies
+connections = table(data$C1)
+connections = round(connections/sum(connections)*100, digit = 1)
+names(connections) = c("No", "Yes")
+connections <- as.data.frame(connections)
+```
+
+```{r connections, echo=FALSE, results ='asis'}
+#TABLE GENERATION: internet connection frequencies
+kable(connections, "latex", booktabs = T, align='c', col.names = c("Do you have an internet connection?", "Frequency (%)"), caption = "Internet connection percentage frequencies.") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+It may be asked if there is a connection between the presence (or absence) of an internet connection and the location of the enterprise. This hypothesis will be tested below. 
+
+```{r test connection location, echo = FALSE}
+chisq.test(table(data$C1, data$Locations))
+```
+Due to the $p$-value, at the $\alpha = 0.05$, the $H_0$ mustn't be rejected and as a consequence, there may be independence between the two attributes. Fortunately, the sample may shows that there isn't a gap between different areas of our country with respect to the presence of internet connection. 
+
+### Quality
+
+Now, we want to study the quality of the available internet connection. Here, we are showing the answer to the following question: "If you have an internet connection in your business, do you have a broadband connection?". As it can be seen from table \ref{tab:fast_con_av}, most of the businesses that have an internet connection answer "yes" to this question.
+
+```{r fast connection availability preparation, include = FALSE}
+
+#DATA PREPARATION: internet connection quality
+#La tabella 'fast internet' serve per tutta la sezione "Quality"
+
+fast_internet <- data.frame(data$C1, data$C3, data$C4, data$Class_company)
+fast_internet <- fast_internet %>%
+  rename(C1 = data.C1) %>%
+  rename(C3 = data.C3) %>%
+  rename(C4 = data.C4) %>%
+  rename(Class = data.Class_company) %>%
+  filter(C1 > 0) %>%
+  filter(is.na(C3) == FALSE)
+
+#TABLE PREPARATION: broadband connection frequencies
+fast_av = table(fast_internet$C3)
+fast_av = round(fast_av/sum(fast_av)*100, digit = 1)
+names(fast_av) = c("No", "Yes")
+
+fast_av <- as.data.frame(fast_av)
+```
+
+```{r fast_con_av, echo=FALSE, results ='asis'}
+#TABLE GENERATION: broadband connection frequencies
+kable(fast_av, format = "latex", booktabs = T, align = 'c', col.names = c("Do you have a broadband connection?", "Frequency (%)"), caption = "Broadband connection percentage frequencies.") %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+We want to check now the velocity of this connection. It can be seen from table \ref{tab:fast_con_vel} that most of Italian enterprises do have access to a pretty fast connection: less than 3% of enterprises have a download velocity less than 2 Mbit/s, and more than half of enterprises have a download velocity between 10 and 100 Mbit/s.
+
+```{r fast connction velocity preparation, include=FALSE}
+#TABLE PREPARATION: download velocity frequencies
+
+fast_internet <- fast_internet %>%
+  filter(C3 > 0)
+
+fast_vel = table(fast_internet$C4)
+fast_vel = round(fast_vel/sum(fast_vel)*100, digit = 1)
+names(fast_vel) <- c("< 2 Mbit/s", "(2, 10) Mbit/s", "(10, 30) Mbit/s", "(30, 100) Mbit/s", "> 100 Mbit/s")
+fast_vel <- as.data.frame(fast_vel)
+```
+
+```{r fast_con_vel, echo=FALSE, results ='asis'}
+#TABLE GENERATION: download velocity frequencies
+kable(fast_vel, "latex", booktabs = T, align = 'lr', col.names = c("Download velocity", "Frequency (%)"), caption="Download velocity percentage frequencies.") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+Table \ref{tab:cont_velocity_dim} represents the contingency table of download velocities with respect to the dimension of the company. As it can be seen, big companies usually need faster connections, while small and medium companies might be able to work well even if slower connections are available.
+
+```{r cont velocity dimension preparation, include = FALSE}
+#TABLE PREPARATION: internet connection velocity and company dimension
+velocities <- as.factor(fast_internet$C4)
+fast_internet$velocity <- recode(velocities, "1" = "< 2 Mbit/s", "2" = "(2, 10) Mbit/s", "3" = "(10, 30) Mbit/s", "4" = "(30, 100) Mbit/s", "5" = "> 100 Mbit/s")
+
+fast_vel_cont <- table(fast_internet$velocity, fast_internet$Class)
+fast_vel_cont <- prop.table(fast_vel_cont, margin = 2) * 100
+fast_vel_cont <- as.data.frame(round(fast_vel_cont, digits = 1))
+fast_vel_cont <- spread(fast_vel_cont, Var2, Freq)
+```
+
+```{r cont_velocity_dim, echo = FALSE, results = 'asis'}
+#TABLE GENERATION: internet connection velocity and company dimension
+
+kable(fast_vel_cont, "latex", booktabs = T, align = 'c', col.names = c("Download_velocity", "Small (%)", "Medium (%)", "Big (%)"), caption="Contingency table of Internet connection velocity and company dimension. Values are the percentage conditional distribution by column.") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+The following computation of Chi quadro test shows the rejection of the null hypothesis of independence between variables of table \ref{tab:cont_velocity_dim} with $\alpha=0.05$.
+
+```{r echo = FALSE}
+chisq.test(fast_vel_cont[,c(2,3,4)])
+```
+
+## Percentage of employees who use at least one connected ICT device to work
+
+After studying the presence and quality of internet connection in Italian enterprises, we want to explore the percentage of employees who use at least one ICT device to work, versus the percentage of employees who use at least one *connected* ICT device to work. From graph 5, two important patterns
+emerge:
+
+* A lot of enterprises have all of their employees who need at least one connected device to work,
+but only some of them also need an internet connection to work (this is the line at 100
+percentage on the x axis);
+* A lot of enterprises have all of their ICT devices connected to the internet, regardless of
+the percentage of employees who need them (this is the bisect). Specifically, as it can be
+seen from graph 6, these enterprises are almost 80% of the total ones.
+
+```{r employees_rapp_scatt, echo=FALSE, warning=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE, fig.height = 3, fig.width = 4, fig.align = "center", fig.cap="Percentage of employees with at least one device vs. percentage of employees with at least one connected device. Each point is an enterprise."}
+
+#Dati da utilizzare
+histogram_data = data.frame(data$A3_, data$C2_) %>% `names<-`(c("A3_", "C2_"))
+histogram_data <- histogram_data %>%
+  mutate(Rapp = C2_/A3_) %>%
+  filter(is.na(C2_) == FALSE) %>%
+  mutate(A3_perc = A3_/100) %>%
+  mutate(C2_perc = C2_/100)
+
+#Prendo solo alcuni per fare il plot
+#histogram_data = histogram_data[runif(1000, min = 0, max = dim(histogram_data)[1]),]
+
+ggplot(data = histogram_data, aes(x = A3_perc, y=C2_perc)) + 
+  geom_point(size = 0.3, alpha = 0.5) + 
+  xlab("% of employees that have \n at least one device.") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% of employees that have \n at least one connected device.") +
+  scale_x_continuous(labels=scales::percent) + 
+  theme(axis.text.x=element_text(colour="black", size = 10), 
+        axis.text.y=element_text(colour="black", size = 10),
+        text=element_text(size = 10))
+```
+
+
+
+```{r employees_rapp_hist, echo=FALSE, warning=FALSE, cache=FALSE, results=FALSE, warning=FALSE, comment=FALSE, message=FALSE, fig.height = 3, fig.width = 4, fig.align = "center", fig.cap="Distribution of the ratio between the percentage of employees with at least one device and the percentage of employees with at least one connected device."}
+
+ggplot(data = histogram_data, aes_string(x = "Rapp")) + 
+  geom_histogram(aes(y = ((..count..)/sum(..count..)))) + 
+  xlab("Ratio percantage") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% of enterprises") + 
+  scale_x_continuous(labels=scales::percent) + 
+  coord_flip() +
+  theme(axis.text.x=element_text(colour="black", size = 11), 
+        axis.text.y=element_text(colour="black", size = 11),
+        text=element_text(size = 11))
+```
+
+Finally, it would be interesting to show how the mean percentages of employees who have at least one connected ICT device changes with the macro-areas of our country -- specifically, North-West, North-East, Center, South and Islands parts. To increase the interpretability of the results, a map is used as a tool to represent the *punctual estimation* for the mean of the proportion in each area. The map is shown in figure \ref{fig:map}.
+
+![Mean percentages of employees who use at least one connected device in several Italian macro-areas \label{fig:map}](MAP.jpg){width=50%}
+
+As it can be seen from the map in figure \ref{fig:map}, it seems that the percentage of employees with at least one connected device is higher in the North-east area, while south and island are characterized by a smaller rate.
+
+## General situation of other variables
+
+We now want to analyze the general situation with ICT usage, especially with regards to specific services:
+
+* Presence of employees specifically trained to use ICT devices;
+* Update of ICT knowledge for employees;
+* Web pages;
+* Web advertisement;
+* Cloud computing;
+* 3D-printer;
+* Robotics;
+* Big Data Analytics;
+* Electronic invoicing;
+* E-commerce.
+
+These information are collected in the dataset as answers to a question like the following: "Have you used *service* in *year*?" The *service* could have been one of the previous ones, while the *year* could have been $2018$ (year of the survey) or $2017$ (previous year); answers could have been *yes* or *no*. In figure \ref{fig:general_situation}, it is shown the percentage of enterprises that have answered "yes" to each of the questions; some fields are labeled with the year $2017$ because the question referred to that period, otherwise the $2018$ year is implicit.
+
+Since we are managing a sample, it's fundamental to underline that the computation of the percentage relies on the *estimator* of the proportion which is correct, consistent and efficient:
+$$
+\hat{P}=\frac{1}{N} \sum_{i=1}^{N} X_i
+$$
+where $N$ is the number of statistical units and $X_i$ the number of successes.
+Since the dataset has a huge number of data, we assume the validity of the *Central Limit Theorem* which allow us to state that the distribution of the estimator is *gaussian*. As a consequence, we can compute the *confidence interval* for each proportion and show it in the graph. This same procedure will be applied further, every time we will compute confidence intervals. We set $\alpha = 5\%$ for all of them.
+
+Furthermore, we want to understand if two proportions $p_1$ and $p_2$ are statistically different: to do that, we should test the hypothesis $H_0: p_1-p_2=0$ with the following test:
+
+$$
+\frac{(\hat{p}_1-\hat{p}_2)-(p_1-p_2)}{\sqrt{(p(1-p))[\frac{1}{n_1}+\frac{1}{n_2}]}} \sim N(0,1),
+$$
+where $p_1$ and $p_2$ are the proportions of the population, $n_1$ and $n_2$ are the sizes of samples and finally, $p=\frac{X_1+X_2}{n_1+n_2}$ with $X_1$ and $X_2$ as the number of _yes_. But this test should be performed only on the assumption that samples are independent. This is not the case in this project, because there are for example some companies that adopt more services at once; if connections between the samples could have been considered negligible, we would have performed this test anyway, with a certain degree of error. However, we verified that this isn't true in our case: therefore, we won't perform this test in this analysis and we will only give qualitative comments with regards to comparing our confidence intervals. Future developments of this project could consider performing a comparison test taking dependence of the sample into account. 
+
+Although most of enterprises have a web page and adopt electronic invoicing, only a few of them use 3D-printer, robot and big data analytics: this is reasonable because most of the time these technologies are technical and cost a lot of money, and so they are used in specific fields.
+
+```{r general_situation, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE, comment=FALSE, fig.height = 6, fig.width = 9, fig.align = "H", fig.cap="Percentage of enteprises that use these services with confidence intervals."}
+
+general_data <- data[, c("B1", "B2a", "B2b", "C1", "C8", "C10", "D1", "E1a", "E1b", "F1a", "F1b", "G1a", "G1b", "G1c", "G1d", "H1a", "H1b","I1a", "I1b")]
+
+#Aggregate columns
+general_data <- general_data %>%
+  mutate("B2" = B2a + B2b) %>%
+  mutate("E1" = E1a + E1b) %>%
+  mutate("F1" = F1a + F1b) %>%
+  mutate("G1" = G1a + G1b + G1c + G1d) %>%
+  mutate("H1" = H1a + H1b) %>%
+  mutate("I1" = I1a + I1b)
+
+general_data$B2 <- ifelse(general_data$B2 > 0, 1, 0)
+general_data$E1 <- ifelse(general_data$E1 > 0, 1, 0)
+general_data$F1 <- ifelse(general_data$F1 > 0, 1, 0)
+general_data$G1 <- ifelse(general_data$G1 > 0, 1, 0)
+general_data$H1 <- ifelse(general_data$H1 > 0, 1, 0)
+general_data$I1 <- ifelse(general_data$I1 > 0, 1, 0)
+
+#Selection of aggregate columns
+general_data <- general_data %>%
+  select(c(B1, B2, C8, C10, D1, E1, F1, G1, H1, I1))
+
+# Confidence interval.
+CI = function(x){
+  
+  #Sample size
+  n = length(x) - sum(is.na(x))
+  
+  #Proportion
+  ps = sum(x[which(is.na(x) == FALSE)] == 1)/n
+  
+  #Confidence level
+  l = 0.95
+  
+  #Calculations
+  c <- l+(1-l)/2
+  SE <- sqrt(ps*(1-ps)/n)
+  E  <- qnorm(c)*SE
+  ic_3 <- (ps + c(-E, E))
+  c(ic_3, ps)
+}
+
+#Confidence intervals dataframe
+confidence_inter = apply(general_data,2,FUN = CI) %>% t() %>% data.frame() 
+confidence_inter = confidence_inter %>% `names<-`(c("Lower", "Upper", "Average"))
+
+#Decode question numbers
+services = c("ICT professionists", #B1
+             "Update of ICT knowledge \n for employees (2017)", #B2
+             "Web page", #C8
+             "Web advertisement", #C10
+             "Cloud Computing", #D1
+             "3D-printer (2017)", #E1
+             "Robot", #F1
+             "Big Data \n Analytics (2017)", #G1
+             "Electronic \n invoicing (2017)", #H1
+             "E-commerce \n (2017)") #I1
+confidence_inter$Service = services
+
+#Reorder services with respect to the proportion
+confidence_inter$Service = with(confidence_inter, reorder(Service, Average))
+
+#Plot
+ggplot(confidence_inter, aes(x = Average, xmin = Lower, xmax = Upper, y = Service, color = Service)) + 
+  geom_errorbar(width = 0.3, size = 0.8) +
+  geom_point(size = 0.6) +
+  theme(
+    legend.key.height = unit(0.9, "cm"),
+    axis.text = element_text(colour="black"),
+  ) +
+  scale_x_continuous(labels = scales::percent) + 
+  labs(x = "% of enterprises that adopt the service", y = "") +
+  theme(
+  axis.text.x=element_text(colour="black", size = 11),
+  axis.text.y=element_text(colour="black", size = 11),
+  text=element_text(size = 14))
+```
+
+```{r removing variables from section: "general situation", include=FALSE}
+#Remove variables from this part
+
+rm(histogram_data, boxplot_data, 
+   connections, chi,
+   fast_internet, fast_av, fast_vel, fast_vel_cont,
+   map_data, cont, cont1,
+   locations, confidence_inter, general_data, services, velocities, velocity)
+```
+
+# Skills in the ICT fields
+
+In this part, we want to analyze if ICT specialists are needed and if this need is satisfied.
+
+## Needs of an ICT specialists
+
+Here, we are showing the answer from the following question: "In 2017, have you employed or tried to employ ICT specialists?". As it can be seen from table \ref{tab:ICTemploy}, most companies answered "No", and this could be discouraging for Computer Science students.
+
+```{r ICTemploy preparation, include = FALSE}
+#TABLE PREPARATION: ICT specialist employment frequencies
+ICTworkers <- table(data$B3)
+ICTworkers = round(ICTworkers/sum(ICTworkers)*100, digit = 2)
+names(ICTworkers) = c("No", "Yes")
+ICTworkers <- as.data.frame(ICTworkers)
+```
+
+```{r ICTemploy, echo=FALSE, results = 'asis'}
+# TABLE GENERATION: ICT specialists employment frequencis
+kable(ICTworkers, "latex", booktabs = T, align = 'c', col.names = c("Have you employed ICT specialists?", "Frequency (%)"), caption="ICT specialists employment percentage frequencies.") %>%
+kable_styling(latex_options="hold_position")
+```
+However, studying the same table with respect to the dimension of the company might be useful in this case.
+
+```{r contingency ICT general preparation, echo = FALSE}
+#Dataframe generation
+ICTworkdim <- data.frame(data$B3, data$Class_company)
+
+#Recode answers
+answers <- as.factor(ICTworkdim$data.B3)
+answers <- recode(answers, "0" = "No", "1" = "Yes")
+ICTworkdim <- ICTworkdim %>%
+  mutate(answers = answers)
+
+rm(answers)
+
+tables <- table(ICTworkdim$data.Class_company, ICTworkdim$answers)
+rm(ICTworkdim)
+```
+
+Looking at the percentage conditional distribution by the answer to the question (table \ref{tab:ICTcontanswers}), it can be seen that most "No" answers come from small enterprises, while "yes" answers are equally distributed among the dimensions, with a small preference to big enterprises.
+
+```{r ICTcontanswers preparation, include = FALSE}
+#TABLE PREPARATION: contingency tables ICT specialists and company dimensions (marginal distribution by answers)
+
+#Generate contingency tables
+cont1 <- prop.table(tables, margin = 2) * 100
+cont1 <- as.data.frame(round(cont1, digits = 1))
+cont1 <- spread(cont1, Var2, Freq)
+```
+
+```{r ICTcontanswers, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: contingency tables ICT specialists and company dimensions
+
+kable(cont1, "latex", booktabs = T, align = 'c', col.names = c("Company Dimension", "No (%)", "Yes (%)"), caption="Contingency table of ICT specialists employment vs. the company dimension. Values are the percentage conditional distribution by answers (column).") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+Looking instead at the percentage conditional distribution by the dimension of the company, it can be seen from table \ref{tab:ICTcontdimension} that the "No" answer is more frequent in all cases, but the "Yes" answer is more prevalent in big companies than in medium and small companies; therefore, Computer science students might consider keeping an eye on big companies.
+
+```{r ICTcontdimension preparation, include = FALSE}
+#TABLE PREPARATION: contingency tables ICT specialists and company dimensions (marginal distribution by dimension)
+
+#Generate contingency tables
+cont2 <- prop.table(tables, margin = 1) * 100
+cont2 <- as.data.frame(round(cont2, digits = 1))
+cont2 <- spread(cont2, Var2, Freq)
+```
+
+```{r ICTcontdimension, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: contingency tables ICT specialists and company dimensions
+
+kable(cont2, "latex", booktabs = T, align = 'c', col.names = c("Company Dimension", "No (%)", "Yes (%)"), caption="Contingency table of ICT specialists employment vs. the company dimension. Values are the percentage conditional distribution by company dimensions (row).") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+Indeed, if a Chi-squared test of independence is used to test if the dimension of the company and the needs of an ICT specialist are independent or not, due to the $p$-value, at $\alpha = 0.05$ the hypothesis of independence must be rejected.
+
+```{r test_ICT_dimension, echo = FALSE}
+chisq.test(tables)
+```
+
+## Problems in finding ICT specialists
+
+Looking specifically at the "Yes" answers to the previous question, we are analyzing in table \ref{tab:probICTfreq} the answer to the following question: "Have you encountered some problems finding the ICT specialists that you needed?". It's interesting to know that the frequencies to both answers is almost the same: finding an ICT specialist was a difficult task for almost half of the companies.
+
+```{r probICTfreq preparation, include=FALSE}
+#TABLE PREPARATION: problems in finding ICT specialists
+difficulties <- table(data$B4)
+difficulties = round(difficulties/sum(difficulties)*100, digit = 2)
+names(difficulties) = c("No", "Yes")
+difficulties <- as.data.frame(difficulties)
+```
+
+```{r probICTfreq, echo=FALSE, results = 'asis'}
+# TABLE GENERATION: problems in finding ICT specialists
+kable(difficulties, "latex", booktabs = T, align = 'c', col.names = c("Have you encountered problems finding ICT specialists?", "Frequency (%)"), caption="ICT specialists problems percentage frequencies.") %>%
+kable_styling(latex_options="hold_position")
+```
+
+Studying the double contingency table with respect to the dimension of the company, and in particular the percentage conditional distribution by row (from table \ref{tab:ICTprobdim}), it can be seen that it was a difficult task for companies regardless of the dimension, although it was slightly easier for big companies. Therefore, Computer Science students are highly encouraged to apply for a job if the company is asking, because they could have a high chance of being hired. It has to be noted though that this analysis doesn't take into account the age of potential new ICT specialists, and this is notably an important factor for hiring a new employee -- specifically, if previous experiences are taken into account.
+
+```{r ICTprobdim preparation, include = FALSE}
+#TABLE PREPARATION: contingency tables ICT specialists problems and company dimensions
+
+probdim <- data.frame(data$B4, data$Class_company)
+probdim <- probdim %>%
+  rename(B4 = data.B4) %>%
+  rename(Dimension = data.Class_company)
+
+answers <- as.factor(probdim$B4)
+answers <- recode(answers, "0" = "No", "1" = "Yes")
+probdim <- probdim %>%
+  mutate(answers = answers)
+
+rm(answers)
+
+probdim <- table(probdim$Dimension, probdim$answers)
+probdim <- prop.table(probdim, margin = 1) * 100
+probdim <- as.data.frame(round(probdim, digits = 1))
+probdim <- spread(probdim, Var2, Freq)
+```
+
+```{r ICTprobdim, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: contingency tables ICT specialists and company dimensions
+
+kable(probdim, "latex", booktabs = T, align = 'c', col.names = c("Company Dimension", "No (%)", "Yes (%)"), caption="Contingency table of ICT specialists employment problems vs. company dimension. Values are the percentage conditional distribution by company dimension (row).") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+## ICT activities
+
+Finally, we want to focus on ICT activities: if, in a particular business, they are carried out by internal staff, external staff or not carried out at all; as it can be seen from table \ref{tab:ICTact}, most activities are carried out by external staff. It is also remarkable that more than 30% of enterprises don't carry out *Web maintenance activities*, even if, as we have previously noted, almost 80% of Italian enterprises have a website. 
+
+```{r ICTact preparation, include=FALSE}
+#TABLE PREPARATION: ICT activities by staff
+ICTact <- data.frame(Var1 = as.factor(c(1,2,3)))
+
+columns = c("B5a", "B5b", "B5c", "B5d", "B5e", "B5f", "B5g")
+
+#Generate dataframe from answers
+for (column in columns){
+  B5 <- as.data.frame(table(data[,column]))
+  names(B5)[2] <- column
+  ICTact <- left_join(ICTact, B5, by = "Var1")
+}
+
+#Generate percentages in dataframe
+
+percentages <- function(col){
+  round(col/sum(col) * 100, digits = 1)
+}
+
+ICTact <- ICTact %>% 
+  mutate_at(vars(-Var1), percentages)
+
+#Transpose dataframe
+ICTact <- as.data.frame(t(ICTact)) %>% tibble::rownames_to_column("Questions")
+ICTact <- ICTact[-c(1),]
+
+#Preparing names and types
+rownames(ICTact) <- NULL
+ICTact = ICTact %>% dplyr::arrange(V1)
+names(ICTact) <- c("Activities", "Internal (%)", "External (%)", "No one (%)")
+ICTact[, 2:4] <- sapply(ICTact[, 2:4], as.numeric)
+ICTact$Activities <- as.factor(ICTact$Activities)
+ICTact$Activities <- recode(ICTact$Activities,
+                           "B5a" = "Devices maintenance",
+                           "B5b" = "Office software support",
+                           "B5c" = "Software development",
+                           "B5d" = "Software maintenance",
+                           "B5e" = "Web development",
+                           "B5f" = "Web maintenance",
+                           "B5g" = "Security")
+
+```
+
+```{r ICTact, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: ICT activities by staff
+
+kable(ICTact, "latex", booktabs = T, align = 'c', caption="Who carries out ICT activities in italian enterprises") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+It has to be noted though that the distribution showed in table \ref{tab:ICTact} strongly depends on the sector. As an example, we are exploring here the activities regarding *device maintenance*; as it can be seen from table \ref{tab:ICTactset}, while building and food and accommodation services prefer to have to be carried out this activity by external staff by a large margin, computer management enterprises carry it out with internal staff, as it has to be expected.
+
+```{r ICTact by sector preparation, include = FALSE}
+ICTactset <- table(data$B5a, data$Ateco_long)
+ICTactset <- prop.table(ICTactset, margin = 2) * 100
+ICTactset <- as.data.frame(round(ICTactset, digits = 1))
+ICTactset <- spread(ICTactset, Var1, Freq)
+ICTactset = ICTactset %>% data.frame(.) %>% dplyr::arrange(X1)
+```
+
+```{r ICTactset, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: ICT activities by staff
+
+kable(ICTactset, "latex", booktabs = T, align = 'c', col.names = c("Work Areas", "Internal (%)", "External (%)", "No one (%)"),
+      caption="Who carries out device maintenance in italian enterprises, by work areas") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+```{r removing variables from section: "skills in the ICT field", include=FALSE}
+#Remove variables from this part
+rm(ICTworkers,
+   tables, cont1, cont2,
+   difficulties, probdim,
+   B5, ICTact, ICTactset, column, columns)
+```
+
+
+# Big data and Cloud computing
+
+Being data science students, we now want to focus on main technologies regarding use and analysis of *big data*; specifically, big data sources and analysis, and cloud computing services, which could be really helpful if internal servers aren't enough, both for testing and development projects.
+
+## Big data
+
+We will start focusing on Big Data Analytics. From figure \ref{fig:general_situation}, we know that this is still a rare technology in our enterprises, specifically, as it can be seen from table \ref{tab:BDAfrequency}, it has been used in 2017 only by 13% of our sample.
+
+```{r big data frequency preparation, include = FALSE}
+#BIGDATA IS USEFUL FOR ALL CELL CODES BELOW
+
+#Selecting big data columns 
+start = (names(data) == "G1a") %>% which()
+final = (names(data) == "G2b") %>% which()
+bigdata <- data[,start:final]
+rm(start, final)
+
+#Adding company features
+bigdata$dim <- data$Class_company
+bigdata$ateco <- data$Ateco_long
+
+#Adding big data flag column
+bigdata$G1 = bigdata$G1a + bigdata$G1b + bigdata$G1c + bigdata$G1d
+bigdata$G1 <- ifelse(bigdata$G1 > 0, 1, 0)
+
+#TABLE PREPARATION: Big data frequency preparation
+tables <- as.data.frame(round(prop.table(table(bigdata$G1)) * 100, digits = 1))
+tables$Var1 <- recode(tables$Var1, "0" = "No", "1" = "Yes")
+```
+
+```{r BDAfrequency, echo=FALSE, results = 'asis'}
+# TABLE GENERATION: Big data frequencies
+kable(tables, "latex", booktabs = T, align = 'c', col.names = c("Have you performed Big Data Analytics?", "Frequency (%)"), caption="Big Data Analytics percentage frequencies.") %>%
+kable_styling(latex_options="hold_position")
+```
+
+With regards to the enterprise's features, 31% of the big enterprises have used Big Data Analytics possibilities, while less than 8% of small companies have done the same, as it can be seen from table \ref{tab:BDAfreqdim}, showing the contingency table between the use of Big Data Analytics and the dimension of the company, and in particular the conditional distribution by the second variable (company dimension).
+
+```{r BDAfrequency and dimension preparation, include = FALSE}
+cont <- table(bigdata$G1, bigdata$dim)
+cont <- prop.table(cont, margin = 2) * 100
+cont <- as.data.frame(round(cont, digits = 1))
+cont <- cont %>%
+  spread(Var2, Freq)
+
+cont$Var1 =recode(cont$Var1, "0" = "No", "1" = "Yes")
+
+```
+
+```{r BDAfreqdim, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: Big Data Analytics and ATECO
+kable(cont, "latex", booktabs = T, align = 'c', col.names = c("Have you used Big Data Analytics?", "Small (%)", "Medium (%)", "Big (%)"), caption="Contingency table: Big Data Analytics use and company dimension; percentage conditional distribution by company dimension.") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+Furthermore, as it can be seen from table \ref{tab:BDAfreqAT}, a bigger fraction of electrical energy, gas, steam and air conditioning enterprises have used Big Data Analytics in 2017, followed by Information and communication services and professional, scientific and technical activities. Big Data students might consider keeping an eye on these companies.
+
+```{r BDAfrequency and ATECO preparation, include = FALSE}
+#TABLE PREPARATION: Big Data Analytics and ATECO
+cont <- table(bigdata$ateco, bigdata$G1)
+cont <- prop.table(cont, margin = 1) * 100
+cont <- as.data.frame(round(cont, digits = 1))
+cont <- cont %>%
+  spread(Var2, Freq)
+cont = cont %>% data.frame(.) %>% dplyr::arrange(X0)
+cont$Var1 =recode(cont$Var1, "0" = "No", "1" = "Yes")
+```
+
+```{r BDAfreqAT, echo=FALSE, results = 'asis'}
+#TABLE GENERATION: Big Data Analytics and ATECO
+kable(cont, "latex", booktabs = T, align = 'c', col.names = c("Work Area", "No (%)", "Yes (%)"), caption="Big Data Analytics usage splitted by services.") %>%
+  kable_styling(latex_options="hold_position")
+```
+
+As for the sources of Big Data, it can be seen from figure \ref{fig:big_data_graphs} that data mostly come from sensors and intelligent devices (as information and communication services and scientific activities use them for various purposes), while geolocalization and Social media data are less used. Moreover, it's worthwhile to mention that it is more common that internal employees analyze big data: this could be because most companies that planned to use big data also have specific big data architectures at their disposal. Figure \ref{fig:big_data_graphs} was built on the basis of the percentage of _yes_ or _no_ to the associated questions and the associated confidence intervals are built as above. Moreover, it's important to underline that different enterprises can choose different services (samples aren't independent).
+
+```{r big_data_graphs, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE,comment=FALSE, fig.height = 4, fig.width = 10, fig.align = "h", fig.cap="Percentages of enterprises that let big data analytics be performed from various sources (left) and by internal or external staff (right), with confidence intervals."}
+
+#Filtering big data companies
+bigdata <- filter(bigdata, is.na(G2a) == FALSE)
+bigdata <- bigdata[, 1:6]
+
+#Confidence intervals
+confidence_inter_cc = apply(bigdata,2,FUN = CI) %>% t() %>% data.frame()
+confidence_inter_cc = confidence_inter_cc %>% `names<-`(c("Lower", "Upper", "Proportion"))
+rm(bigdata)
+
+#Adding service
+confidence_inter_cc$Service = c("Sensors and \n intelligent devices", "Geolocalization", "Social Media", "Others", "Internal \n staff", "External \n staff")
+
+#Separating the two dataframes
+confidence_inter_cc_1 = confidence_inter_cc[1:(dim(confidence_inter_cc)[1]-2),]
+confidence_inter_cc_2 = confidence_inter_cc[(dim(confidence_inter_cc)[1]-1):dim(confidence_inter_cc)[1],]
+
+rm(confidence_inter_cc)
+
+#Ordering bars
+confidence_inter_cc_1$Service = with(confidence_inter_cc_1, reorder(Service, Proportion))
+
+#Services plot
+gg = ggplot(confidence_inter_cc_1, aes(x=Service, y=Proportion)) + 
+  geom_bar(stat="identity", color="black", fill = "#D21F3C", alpha = .6, position = position_dodge()) +
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.2, position=position_dodge(.9)) + 
+  coord_flip() + 
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% of enterprises") + 
+  xlab("") + theme(
+    legend.position = "none",
+    axis.text.x=element_text(colour="black", size = 12), # numeri sugli assi.
+    axis.text.y=element_text(colour="black", size = 12),
+    text=element_text(size = 14)
+  )
+
+#Internal or external staff
+gg2 =ggplot(confidence_inter_cc_2, aes(x=Service, y=Proportion)) + 
+  geom_bar(stat="identity", color="black", fill = "#D21F3C", alpha = .6, position=position_dodge()) +
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.2, position=position_dodge(.9)) + 
+  coord_flip() + scale_y_continuous(labels=scales::percent) + ylab("% of enterprises") + xlab("") + theme(
+    legend.position = "none",
+    axis.text.x=element_text(colour="black", size = 12), # numeri sugli assi.
+    axis.text.y=element_text(colour="black", size = 12),
+    text=element_text(size = 14)
+  )
+
+gridExtra::grid.arrange(gg, gg2, nrow = 1, widths = c(2.5, 2))
+```
+```{r removing variables from subsection "big data", include = FALSE}
+rm(confidence_inter_cc, confidence_inter_cc_1, confidence_inter_cc_2,
+   cont, tables,
+   gg, gg2)
+```
+
+\newpage
+
+## Cloud Computing
+
+From figure \ref{fig:general_situation}, we know that this is still a fairly rare technology in our enterprises; specifically, as it can be seen from table \ref{tab:cloudfrequency}, it has been used in 2017 only by 33% of enterprises in our sample.
+
+```{r cloud frequency preparation, include = FALSE}
+#CLOUD IS USEFUL FOR ALL CELL CODES BELOW
+
+#Selecting big data columns 
+start = (names(data) == "D1") %>% which()
+final = (names(data) == "D3b") %>% which()
+cloud <- data[,start:final]
+rm(start, final)
+cloud$dim <- data$Class_company
+
+#TABLE PREPARATION: cloud computing frequency preparation
+tables <- as.data.frame(round(prop.table(table(cloud$D1)) * 100, digits = 1))
+tables$Var1 <- recode(tables$Var1, "0" = "No", "1" = "Yes")
+```
+
+```{r cloudfrequency, echo=FALSE, results = 'asis'}
+# TABLE GENERATION: cloud computing frequencies
+kable(tables, "latex", booktabs = T, align = 'c', col.names = c("Have you bought Cloud Computing services?", "Frequency (%)"), caption="Cloud Computing services percentage frequencies.") %>%
+kable_styling(latex_options="hold_position")
+```
+As for why they've used it, it can be seen from graph \ref{fig:cloudpp} (on the left) that most enterprises that choose cloud computing services use them for email services; indeed, this solution is often used in order to retain the most important messages and email that may be lost if they are stored in a local personal computer. Moreover, cloud computing is also used for file storage, database hosting and software, although this happens less often. Figure \ref{fig:cloudpp}, both the left and right side, was built on the basis of the percentage of _yes_ or _no_ to the associated questions and the confidence intervals are built as above.
+
+```{r cloudservice, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE,comment=FALSE, fig.height = 3, fig.width = 5, fig.align = "H"}
+
+#Filtering null values
+cloud <- filter(cloud, is.na(D2a) == FALSE)
+
+#Confidence intervals
+confidence_inter_cc = apply(cloud,2,FUN = CI) %>% t() %>% data.frame()
+confidence_inter_cc = confidence_inter_cc %>% `names<-`(c("Lower", "Upper", "Proportion"))
+confidence_inter_cc <- confidence_inter_cc[2:8,]
+
+#Adding why cloud computing is used
+confidence_inter_cc$Service = c("Email services", "Office software", "Databases hosting", "File storage", "Software for fincance \n and accounting", "CRM Application", "Computing power")
+
+#Ordering bars
+confidence_inter_cc$Service = with(confidence_inter_cc, reorder(Service, Proportion))
+
+#Graph
+gg_cloud_1 = ggplot(confidence_inter_cc, aes(x=Service, y=Proportion)) +
+  geom_bar(stat="identity", color="black", fill = "#D21F3C", alpha = .6, position=position_dodge()) +
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.2, position=position_dodge(.9)) +
+  coord_flip() + scale_y_continuous(labels=scales::percent) + ylab("% of enterprises") + xlab("") + theme(
+    legend.position = "none",
+    axis.text.x=element_text(colour="black", size = 12), # numeri sugli assi.
+    axis.text.y=element_text(colour="black", size = 12),
+    text=element_text(size = 14)
+  )
+```
+
+Given the contingency tables between the dimension of the enterprises and the type of services (public and separately the private one) with the conditional percentage distribution with respect to the dimension of the company, the figure \ref{fig:cloudpp} (on the right) show the percentages of _yes_ of that tables. As it might be seen, there isn't an important difference between the percentage of enterprises that choose public cloud computing (which means that the service is shared with others) and private cloud computing (reserved ICT resources - as CPU and memory). However, one characteristic is that the big companies use a public service more than the private one. 
+
+```{r cloudpp, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE,comment=FALSE, fig.height = 4, fig.width = 10, fig.align = "H", fig.cap="On the left, figure shows the percentages of enterprises that use cloud computing for different services with confidence intervals, while on the right, graph shows the private and public cloud computing services, splitted by company dimension."}
+
+#Selecting public and private services
+cloud <- cloud[,9:11]
+
+#Calculating frequencies
+data_cc = cloud %>% 
+  group_by(dim) %>% summarize(Prop_D3a = sum(D3a == 1)/length(D3a), Prop_D3b = sum(D3b == 1)/length(D3b), Number = n())
+
+#Confidence intervals with given number
+CI_2 = function(x){
+  ps = x[1]
+  n = x[2] 
+  l = 0.95
+  c <- l+(1-l)/2
+  SE <- sqrt(ps*(1-ps)/n)
+  E  <- qnorm(c)*SE 
+  ic_3 <- c(ps-E, ps+E)
+  ic_3
+}
+
+#Public CIs
+Public = apply(data_cc[,c(2,4)], 1, FUN = CI_2) %>% data.frame() %>% t()  %>% `rownames<-`(c("Public_Small", "Public_Medium", "Public_Big"))
+Public = data.frame(Public, data_cc$Prop_D3a,  c("Public", "Public", "Public"), c("Small", "Medium", "Big"))
+names(Public) = c("Lower", "Upper", "Proportion", "Type", "Size")
+
+#Private CIs
+Private = apply(data_cc[,c(3,4)], 1, FUN = CI_2) %>% data.frame() %>% t()  %>% `rownames<-`(c("Private_Small", "Private_Medium", "Private_Big"))
+Private = data.frame(Private, data_cc$Prop_D3b, c("Private", "Private", "Private"), c("Small", "Medium", "Big"))
+names(Private) = c("Lower", "Upper", "Proportion", "Type", "Size")
+
+#Dataframe
+data_cc = rbind(Public, Private)
+rm(Public, Private)
+
+#Plot
+gg_cloud_2 = ggplot(data_cc, aes(x=Size, y=Proportion, fill = Size)) + 
+  geom_bar(stat="identity", color="black", fill = "#D21F3C", alpha = .6, position=position_dodge()) +
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.2, position=position_dodge(.9)) + 
+  coord_flip() + scale_y_continuous(labels=scales::percent) + ylab("% of enterprises") + xlab("") + theme(
+    legend.position = "none",
+    axis.text.x=element_text(colour="black", size = 12), # numeri sugli assi.
+    axis.text.y=element_text(colour="black", size = 12),
+    text=element_text(size = 14)
+  ) + facet_wrap(~Type)
+
+gridExtra::grid.arrange(gg_cloud_1, gg_cloud_2, nrow = 1)
+```
+Furthermore, there are several companies which adopt both the public and the private cloud computing services.The confidence intervals for this percentage proportion are shown below.
+
+```{r confidenceboth, echo = FALSE}
+
+cloud$CLOUD = cloud$D3a == "1" & cloud$D3b == "1"
+cloud$CLOUD = ifelse(cloud$CLOUD == FALSE, 0, 1)
+
+c(CI(cloud$CLOUD)[1], CI(cloud$CLOUD)[2])
+```
+
+```{r removing variables from subsection "cloud computing", include = FALSE}
+rm(cloud,tables, data_cc,
+   confidence_inter_cc)
+```
+
+## Both
+
+Finally, it could be interesting to study the relationship between the usage Big Data Analytics and Cloud Computing. First of all, as it can be seen from the code below, the chi-squared test tells that the hypothesis of independence (at $95%$ of confidence) between the two technologies must be rejected: they are indeed connected. 
+
+```{r cloudanddata preparation, echo = FALSE}
+
+#Big data columns
+start = (names(data) == "G1a") %>% which()
+final = (names(data) == "G1d") %>% which()
+bigdatacloud <- data[, start:final]
+rm(start, final)
+
+#Adding big data flag column
+bigdatacloud$G1 = bigdatacloud$G1a + bigdatacloud$G1b + bigdatacloud$G1c + bigdatacloud$G1d
+bigdatacloud$G1 <- ifelse(bigdatacloud$G1 > 0, 1, 0)
+
+#Cloud computing column
+bigdatacloud <- cbind(bigdatacloud, data$D1)
+
+#Chi-squared test
+chisq.test(table(bigdatacloud$G1, bigdatacloud$`data$D1`))
+
+#First contingency table
+cont1 <- table(bigdatacloud$G1, bigdatacloud$`data$D1`)
+cont1 <- prop.table(cont1, margin = 1) * 100
+cont1 <- as.data.frame(round(cont1, digits = 1))
+cont1 <- cont1 %>%
+  rename("Big data" = Var1) %>%
+  rename("Cloud computing" = Var2) %>%
+  spread("Cloud computing", Freq)
+
+meow <- as.factor(cont1$`Big data`)
+meow <- recode(meow, "0" = "No", "1" = "Yes")
+cont1$`Big data` <- meow
+
+#Second contingency table
+cont2 <- table(bigdatacloud$G1, bigdatacloud$`data$D1`)
+cont2 <- prop.table(cont2, margin = 2) * 100
+cont2 <- as.data.frame(round(cont2, digits = 1))
+cont2 <- cont2 %>%
+  rename("Big data" = Var1) %>%
+  rename("Cloud computing" = Var2) %>%
+  spread("Cloud computing", Freq)
+cont2$`Big data` <- meow
+rm(meow)
+```
+
+To investigate this connection, contingency tables will show percentages of companies that have answered positively to one of the following questions: "Have you performed Big Data Analytics?" and "Have you chosen Cloud Computing services?". These percentages will be computed as percentage conditional distributions, with respect to the first or the second variable. 
+
+As it can be seen from table \ref{tab:cloudanddata1}, showing the percentage conditional distribution with respect to big data, almost 60% of companies that adopted Big Data Analytics have also chosen Cloud Computing Services; while only 24% of companies that adopted Cloud Computing Services have also performed Big Data Analytics, as it can be seen from table \ref{tab:cloudanddata2}. This could suggest an association rule like the following: "Big Data Analytics $\to$ Cloud Computing": if big data are being analyzed in the enterprise, cloud computing services will probably be adopted. However, this association rule has to be further tested, and this will not be performed here.
+
+```{r cloudanddata1, echo = FALSE}
+#First table
+kable(cont1, "latex", booktabs = T, align = 'c', col.names = c("Big data (%)", "No", "Yes"), caption = "Big data and Cloud computing contingency table: percentage conditional distribution with regards to big data.") %>%
+  kable_styling(latex_options="hold_position") %>%
+  add_header_above(c(" " = 1, "Cloud Computing" = 2))
+```
+
+```{r cloudanddata2, echo = FALSE}
+#Second table
+kable(cont2, "latex", booktabs = T, align = 'c', col.names = c("Big data", "No", "Yes"), caption = "Big Data and Cloud Computing contingency table: percentage conditional distribution with regards to cloud computing.") %>%
+  kable_styling(latex_options="hold_position") %>%
+  add_header_above(c(" " = 1, "Cloud Computing (%)" = 2))
+```
+
+```{r removing variables from subsection "both, include = FALSE}
+rm(bigdatacloud, cont1, cont2)
+```
+
+# Future ICT investments
+
+Finally, we want to understand time evolution of ICT development in ICT enterprises. In the survey that we are analyzing, there are some fields that collect data about past, present and future investments in ICT areas. The questions were of the following type: "Have you purchased goods or devices that refers to *area* in *year*?". *Year* could be from $2016$ to $2019$, and *area* is one of the following:
+
+* IoT (Internet of Things)
+* 3D printer;
+* Robotics;
+* Programmable machines (or with sensors);
+* Cloud Computing;
+* Web applications;
+* E-commerce;
+* Big Data Analytics;
+* Augmented reality and virtual reality (VR)
+* Cyber-security
+
+Answers could have been "yes" or "no". Note that investments with regards to $2018$ and $2019$ are planned ones. 
+
+In graph \ref{fig:time}, percentages of enterprises that have invested in these services are shown, with their confidence intervals, for each year. There is a line that connects these points, to better show time evolution; line is dotted because we have a year granularity (the line shouldn't be interpreted as a trend line) and because companies are not the same for each year.
+
+From graph \ref{fig:time}, a trend emerges: although some confidence intervals overlap, investments go up between $2016$ and $2017$, go down between $2017$ to $2018$ and go up again in $2019$. It has to be noted that cyber-security subverts this last part, although it is the ICT area where Italian enterprises have invested more. 
+
+```{r time, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE,comment=FALSE, fig.height = 7, fig.width = 7, fig.align = "H", fig.cap="Percentages of enterprises that have invested (2016-2017) or planned to invest (2018-2019) in various ICT areas, with confidence intervals (0.95 of confidence level)."}
+
+start = (names(data) == "J1a1") %>% which()
+final = (names(data) == "J2j3") %>% which()
+
+#Selecting important data
+data_time = data[,start:final]
+rm(start, final)
+data_time = data_time[,stringr::str_detect(names(data_time), "(1|2)$") %>% which()]
+
+#Confidence intervals
+confidence_inter_time = apply(data_time,2,FUN = CI) %>% t() %>% data.frame() 
+confidence_inter_time = confidence_inter_time %>% `names<-`(c("Lower", "Upper", "Proportion"))
+
+#Data preparation
+confidence_inter_time$Year = c(rep(c(2016,2017),10), rep(c(2018,2019),10))
+confidence_inter_time$Service = c("IoT", "IoT", "3D-printer", "3D-printer", "Robot", "Robot", "Programmed machines", "Programmed machines", "Cloud Computing", "Cloud Computing", "Web Applications", "Web Applications", "E-commerce", "E-commerce", "Big Data Analytics", "Big Data Analytics", "VR", "VR", "Cybersecurity", "Cybersecurity","IoT", "IoT", "3D-printer", "3D-printer", "Robot", "Robot", "Programmed machines", "Programmed machines", "Cloud Computing", "Cloud Computing", "Web Applications", "Web Applications", "E-commerce", "E-commerce", "Big Data Analytics", "Big Data Analytics", "VR", "VR", "Cybersecurity", "Cybersecurity")
+
+ggplot(confidence_inter_time, aes(x = Year, y = Proportion, color = Service)) + 
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.1) + 
+  geom_point(aes(x=Year, y=Proportion), size=1) +
+  geom_path(alpha = 0.7, linetype = "dotted") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% of enterprises") +
+  theme(axis.text.x=element_text(colour="black", size = 10), # numeri sugli assi.
+      axis.text.y=element_text(colour="black", size = 10))
+```
+
+We also thought it could be interesting to analyze possible reasons to invest more. Table \ref{tab:whymore} answers the following question: "Do you think that *X* is a compelling reason to invest more in ICT technologies?", where *X* is a possible reason like tax incentives, help from Public Administration, and so on. As it can be seen, most of enterprises thought in $2017$ that development and improvement of their technological infrastructures in $2018-2019$ could be carried out with the support of tax breaks, financing or tax incentives, the introduction of ultra-broadband internet connection and the reinforcement and improvement of technological skills of employees.
+
+```{r whymore preparation, include=FALSE}
+
+# how to improve the enterprises in 2918-2019.
+start = (names(data) == "J3a") %>% which()
+final = (names(data) == "J3j") %>% which()
+
+data_time = data[,start:final]
+rm(start, final)
+
+confidence_inter_future = apply(data_time,2,FUN = CI) %>% t() %>% data.frame()
+confidence_inter_future = confidence_inter_future %>% `names<-`(c("Lower (%)", "Upper (%)", "Proportion"))
+
+confidence_inter_future = confidence_inter_future %>% dplyr::arrange(., desc(Proportion))
+confidence_inter_future <- round(confidence_inter_future, digits = 4)
+
+rownames(confidence_inter_future) = recode(rownames(confidence_inter_future), 
+                                           J3a = "Ultra-broadband", 
+                                           J3b = "Tax incentives",
+                                           J3c = "Help from PA",
+                                           J3d = "Collaboration with other enterprises",
+                                           J3e = "New ICT employees",
+                                           J3f = "Training courses for  internal employee",
+                                           J3g = "Improve the digitalization",
+                                           J3h = "Other reasons",
+                                           J3i = "Digital doesn't matter",
+                                           J3j = "Don't know")
+confidence_inter_future = confidence_inter_future*100
+names(confidence_inter_future)[3] = "Proportion (%)"
+confidence_inter_future <- confidence_inter_future[, c(3,1,2)]
+```
+
+```{r whymore, echo=FALSE, results = 'asis'}
+# TABLE GENERATION: reason for future investments
+kable(confidence_inter_future, "latex", booktabs = T, align = 'c', caption="Possible reasons to invest more: percentage of enterprises and confidence intervals.") %>%
+kable_styling(latex_options="hold_position")
+```
+
+Unfortunately for computer science students, it has to be noted that companies usually prefer to train their existing employees instead of hiring new ones. However, looking at the company's dimension might be useful in this case. So, we have investigated answers to the following questions: "Do you think that employing new people is a reason to invest more in ICT technologies? What about training existing employees?". In figure \ref{fig:newemployees}, *yes* answers at the two questions, with their confidence intervals, can be seen, conditioned to the dimension of the company. 
+
+It can be seen that percentages of enterprises that will like to hire new ICT professionists are lower than the percentages of enterprises that will like to invest in training courses for their existing employees, in all companies' dimensions.  However, the first percentages are bigger for big companies than for small and medium ones: this confirms once again the importance of big companies for computer science students. 
+
+```{r newemployees, echo=FALSE, warning=FALSE,cache=FALSE, results=FALSE, warning=FALSE, message=FALSE,comment=FALSE, fig.height = 3, fig.width = 5, fig.align = "h", fig.cap="Percentages of enterprises that are going to hire new ICT professionists, vs. ones that are going to invest in training courses for their existing employees, splitted by size of the company."}
+
+#Dataset creation
+first = (names(data) == "J3e") %>% which()
+final = (names(data) == "J3f") %>% which()
+plus =  (names(data) == "clad3") %>% which()
+
+data_cc = data[,c(first, final, plus)]
+rm(first, final, plus)
+data_cc = data_cc[is.na(data_cc$J3e) == FALSE & is.na(data_cc$J3f) == FALSE,]
+
+data_cc = data_cc %>% dplyr::group_by(clad3) %>% summarize(Prop_J3e = sum(J3e == 1)/length(J3e), Prop_J3f = sum(J3f == 1)/length(J3f), Number = n()); 
+
+#Confidence interval new employees
+New = apply(data_cc[,c(2,4)], 1, FUN = CI_2) %>% data.frame() %>% t()  %>% `rownames<-`(c("New_Small", "New_Medium", "New_Big"))
+New = data.frame(New, data_cc$Prop_J3e,  c("New", "New", "New"), c("Small", "Medium", "Big"))
+names(New) = c("Lower", "Upper", "Proportion", "Type", "Size")
+
+#Confidence interval old employees
+Old = apply(data_cc[,c(3,4)], 1, FUN = CI_2) %>% data.frame() %>% t()  %>% `rownames<-`(c("Old_Small", "Old_Medium", "Old_Big"))
+Old = data.frame(Old, data_cc$Prop_J3f, c("Old", "Old", "Old"), c("Small", "Medium", "Big"))
+names(Old) = c("Lower", "Upper", "Proportion", "Type", "Size")
+
+data_cc = rbind(Old, New)
+rm(Old, New)
+
+ggplot(data_cc, aes(x=Size, y=Proportion, fill = Size)) + 
+  geom_bar(stat="identity", color="black", fill = "#D21F3C", alpha = .6, position=position_dodge()) +
+  geom_errorbar(aes(ymin=Lower, ymax=Upper), width=.2, position=position_dodge(.9)) + 
+  coord_flip() + scale_y_continuous(labels=scales::percent) + ylab("% of enterprises.") + xlab("") + theme(
+    legend.position = "none",
+    axis.text.x=element_text(colour="black", size = 10), # numeri sugli assi.
+    axis.text.y=element_text(colour="black", size = 10)
+  ) + facet_wrap(~Type)
+```
+```{r removing variables from "future investments" section, include = FALSE}
+rm(confidence_inter_future, confidence_inter_time, data_cc, data_time)
+```
+
+
+# Conclusions
+
+In conclusion, ICT development and usage in Italian enterprises is still pretty much on going: while most of them have access to common-knowledge technologies, like internet connections and websites, other technologies, like cloud computing, 3D-printer, robotics and big data analytics, are still obscure and not so much around: this is probably because they are technical, specific and cost a lot of money. That is also the reason why computer science students and data science students might consider keeping an eye on big companies, because the drive towards innovation will probably come from them: they usually have more resources, more income and more interest towards new technologies. Data Science students are also encouraged to look specifically at energy companies, information companies and professional and scientific companies, and to apply for a job if they see a possibility.
+
+We want to reiterate that this analysis doesn't take into account the age of company's employees, the rate of employment of students, or other variables that could be useful to predict and analyze hiring possibilities for students: this is just meant to be a sight at the labor market, developments and possibilities for new people, but further analysis might integrate these data. Furthermore, financial activities are excluded from this sample: they are a notorious example of Big Data Analytics development and usage, and a more complete analysis would also take them into account.
+
+# References
