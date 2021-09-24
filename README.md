@@ -5,6 +5,7 @@ This project aims to use and implement tools about probability and statistics th
 
 The repository is made of: <br>
 <ul>
-  <li> Ok
-  </li>
+  <li> ICT_Microdati_2018.txt: dataset. </li>
+  <li> RAVAZZI-TAMBURINI.pdf: report about the project. </li>
+  <li> RAVAZZI-TAMBURINI.Rmd: Rmarkdown with all the code. </li>
 </ul>
